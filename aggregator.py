@@ -137,7 +137,7 @@ def main():
     while True:
         """ Run the collector until the process is interrupted """
         collector.collect()
-        time.sleep(.5)
+        time.sleep(.05)
 
 if __name__ == "__main__":
     main()
