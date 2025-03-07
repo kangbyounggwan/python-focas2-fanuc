@@ -18,12 +18,18 @@ RUN_LABELS = ["STOPPED", "READY (WAITING)", "FEED HOLD", "ACTIVE", "ACTIVE"]
 
 gBlockString = ""
 
-
+class AlarmMessage(Structure):
+    _fields_ = [
+        ("type", c_short),        # 알람 타입 (예: 경고, 알람, 시스템 알람 등)
+        ("alm_no", c_short),      # 알람 번호 (예: 101, 500 등)
+        ("axis", c_short),        # 축 번호 (X, Y, Z 등, 없으면 -1)
+        ("dummy", c_short),       # 사용되지 않는 필드 (FANUC 내부 예약)
+        ("alm_msg", c_char * 32)  # 알람 메시지 (최대 32바이트 문자열)
+    ]
 class Fanuc30iDriver(FocasDriverBase):
     def __init__(self, dll_path, extradlls=[]):
         self.dll = ctypes.WinDLL(dll_path)
 
-        # ✅ 추가 DLL 로드
         self.extradlls = []
         for extradll in extradlls:
             self.extradlls.append(ctypes.WinDLL(extradll))
@@ -37,21 +43,17 @@ class Fanuc30iDriver(FocasDriverBase):
         func.restype = c_short
         handle = c_ushort(0)
 
-        # ✅ 먼저 self.ip, self.port 설정
         self.ip = ip
         self.port = port
         self.timeout = timeout
 
-        # ✅ IP 주소를 바이트 형식으로 변환
         ip_bytes = ip.encode('utf-8')
 
-        # ✅ ctypes.create_string_buffer() 사용하여 전달
         result = func(ctypes.create_string_buffer(ip_bytes),
                       ctypes.c_uint16(port),
                       ctypes.c_uint16(timeout),
                       byref(handle))
 
-        # ✅ 오류 발생 시 예외 처리
         FocasExceptionRaiser(result, context=self)
 
         return handle
@@ -68,6 +70,7 @@ class Fanuc30iDriver(FocasDriverBase):
         self.addPollMethod(self.getPMCValues)
         self.addPollMethod(self.getServoAndAxisLoads)
         self.addPollMethod(self.getAlarmStatus)
+        self.addPollMethod(self.getAllAlarmMessages)
         self.addPollMethod(self.getCurrentBlock)
 
     def getProgramName(self, handle):
@@ -185,6 +188,28 @@ class Fanuc30iDriver(FocasDriverBase):
         data = {}
         data["alarm"] = alarmStringBuilder(alarm_data=alarm_data)
         return data
+
+    def getAllAlarmMessages(self, handle):
+        getAlarmMsgFunc = self.dll.cnc_rdalmmsg
+        getAlarmMsgFunc.restype = c_short
+
+        num_alarms = c_short(10)  # 최대 10개의 알람 가져오기
+        alarm_list = (AlarmMessage * 10)()
+        result = getAlarmMsgFunc(handle, 0, byref(num_alarms), alarm_list)
+
+        FocasExceptionRaiser(result, context=self)
+
+        data = []
+        for i in range(num_alarms.value):
+            alarm = {
+                "type": alarm_list[i].type,
+                "number": alarm_list[i].alm_no,
+                "axis": alarm_list[i].axis,
+                "message": alarm_list[i].alm_msg.decode('utf-8')
+            }
+            data.append(alarm)
+
+        return {"alarms_msg": data}
 
     def getCurrentBlock(self, handle):
         global gBlockString
