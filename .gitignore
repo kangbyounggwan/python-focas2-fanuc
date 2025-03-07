@@ -1,0 +1,5 @@
+*.pyc
+cover/
+*.sublime*
+.coverage
+test.sh
